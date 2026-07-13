@@ -3,6 +3,7 @@ import {
   Bot,
   CheckCircle2,
   Database,
+  ExternalLink,
   Loader2,
   MessageSquare,
   Play,
@@ -19,6 +20,7 @@ import {
   postChat,
   postFrontier
 } from "./api";
+import { normalizeAssetReferenceRows } from "./assetStats";
 import type {
   ChatMessage,
   ChartPoint,
@@ -44,6 +46,10 @@ const percentFormatter = new Intl.NumberFormat("en-US", {
 });
 
 const numberFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 4
+});
+
+const priceFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 4
 });
 
@@ -166,6 +172,17 @@ function formatValue(value: unknown): string {
 function formatMetric(value: number | undefined, asPercent = false): string {
   if (value === undefined) return "n/a";
   return asPercent ? percentFormatter.format(value) : numberFormatter.format(value);
+}
+
+function formatPrice(value: unknown): string {
+  const numeric = finiteNumber(value);
+  if (numeric !== undefined) return priceFormatter.format(numeric);
+  if (typeof value === "string" && value.trim()) return value.trim();
+  return "n/a";
+}
+
+function formatDateLabel(value: string | undefined): string {
+  return value ?? "date n/a";
 }
 
 function shouldRecompute(responseAction?: string, hasUpdates?: boolean): boolean {
@@ -446,6 +463,7 @@ function App() {
           chatInput={chatInput}
           history={chatHistory}
           isBusy={isChatting || isComputing}
+          isChatting={isChatting}
           setChatInput={setChatInput}
           onSubmit={handleChat}
         />
@@ -659,6 +677,8 @@ function MetricsPanel({
     : null;
   const weights = getWeights(selectedOptimum);
   const sortedWeights = Object.entries(weights).sort((a, b) => b[1] - a[1]);
+  const assetReferences = normalizeAssetReferenceRows(frontier);
+  const hasPriceContext = assetReferences.some((asset) => asset.hasPriceContext);
 
   return (
     <section className="panel metrics-panel">
@@ -700,6 +720,55 @@ function MetricsPanel({
             {frontier
               ? "No optimum weights were returned by the backend."
               : "Weights appear after a computation."}
+          </p>
+        )}
+      </div>
+
+      <div className="asset-reference-section">
+        <div className="subsection-heading">
+          <h3>Reference Prices</h3>
+        </div>
+
+        {hasPriceContext ? (
+          <div className="asset-reference-list">
+            {assetReferences.map((asset) => (
+              <div className="asset-reference-row" key={asset.ticker}>
+                <div className="asset-reference-title">
+                  {asset.yahooFinanceUrl ? (
+                    <a
+                      href={asset.yahooFinanceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {asset.ticker}
+                      <ExternalLink size={13} aria-hidden="true" />
+                    </a>
+                  ) : (
+                    <strong>{asset.ticker}</strong>
+                  )}
+                  <span>{asset.priceSource ?? "Source n/a"}</span>
+                </div>
+
+                <div className="asset-price-grid">
+                  <div>
+                    <span>Latest</span>
+                    <strong>{formatPrice(asset.latestPrice)}</strong>
+                    <small>{formatDateLabel(asset.latestPriceDate)}</small>
+                  </div>
+                  <div>
+                    <span>First</span>
+                    <strong>{formatPrice(asset.firstPrice)}</strong>
+                    <small>{formatDateLabel(asset.firstPriceDate)}</small>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">
+            {frontier
+              ? "Reference price details were not returned by the backend."
+              : "Reference prices appear after a computation."}
           </p>
         )}
       </div>
@@ -745,12 +814,14 @@ function ChatPanel({
   chatInput,
   history,
   isBusy,
+  isChatting,
   setChatInput,
   onSubmit
 }: {
   chatInput: string;
   history: ChatMessage[];
   isBusy: boolean;
+  isChatting: boolean;
   setChatInput: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
 }) {
@@ -769,6 +840,24 @@ function ChatPanel({
         ))}
       </div>
 
+      <div
+        className={`chat-status ${isChatting ? "active" : ""}`}
+        role={isChatting ? "status" : undefined}
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {isChatting ? (
+          <>
+            <span className="typing-dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+            <span>Assistant is thinking</span>
+          </>
+        ) : null}
+      </div>
+
       <form className="chat-form" onSubmit={onSubmit}>
         <input
           value={chatInput}
@@ -777,7 +866,7 @@ function ChatPanel({
           disabled={isBusy}
         />
         <button type="submit" disabled={isBusy || !chatInput.trim()} aria-label="Send chat message">
-          {isBusy ? <Loader2 className="spin" size={18} /> : <MessageSquare size={18} />}
+          {isChatting ? <Loader2 className="spin" size={18} /> : <MessageSquare size={18} />}
         </button>
       </form>
     </section>

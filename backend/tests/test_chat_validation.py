@@ -1,9 +1,17 @@
+import inspect
 import subprocess
 
 from fastapi.testclient import TestClient
 
-from app.chat import codex_status, run_codex_chat, run_codex_cli_chat, validate_updates
-from app.main import app
+from app import chat as chat_module
+from app import main as main_module
+from app.chat import (
+    codex_status,
+    run_codex_chat,
+    run_codex_cli_chat,
+    validate_updates,
+)
+from app.main import app, chat_endpoint
 
 
 client = TestClient(app)
@@ -50,6 +58,47 @@ def test_chat_endpoint_degrades_when_codex_unavailable(monkeypatch):
         "reply": "chat unavailable",
         "updates": {},
     }
+
+
+def test_chat_endpoint_is_async_and_offloads_codex_chat(monkeypatch):
+    calls = []
+
+    async def fake_run_in_threadpool(func, *args, **kwargs):
+        calls.append({"func": func, "args": args, "kwargs": kwargs})
+        return {"action": "answer", "reply": "threaded response", "updates": {}}
+
+    monkeypatch.setattr("app.chat.codex_status", lambda: (True, "Codex chat is available."))
+    monkeypatch.setattr(main_module, "run_in_threadpool", fake_run_in_threadpool)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "explain max Sharpe",
+            "frontier_context": {"assets": ["ABC", "XYZ"]},
+            "history": [{"role": "user", "content": "hello"}],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "available": True,
+        "status": "ok",
+        "action": "answer",
+        "reply": "threaded response",
+        "updates": {},
+    }
+    assert inspect.iscoroutinefunction(chat_endpoint)
+    assert calls == [
+        {
+            "func": chat_module.run_codex_chat,
+            "args": (),
+            "kwargs": {
+                "context": "assets: ['ABC', 'XYZ']",
+                "question": "explain max Sharpe",
+                "history": [{"role": "user", "content": "hello"}],
+            },
+        }
+    ]
 
 
 def test_codex_status_uses_cli_when_sdk_is_unavailable(monkeypatch):
@@ -124,10 +173,7 @@ def test_run_codex_cli_chat_invokes_codex_exec_and_parses_response(monkeypatch):
     assert call["args"][:2] == ["/usr/local/bin/codex", "exec"]
     assert "--sandbox" in call["args"]
     assert "read-only" in call["args"]
-    assert "--ask-for-approval" in call["args"]
-    assert "never" in call["args"]
     assert "--ephemeral" in call["args"]
-    assert "--output-schema" in call["args"]
     assert call["args"][-1] == "-"
     assert call["input"].count("Assets: ABC, XYZ.") == 1
     assert "assistant: Current rf is 2%." in call["input"]

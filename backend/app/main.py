@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import math
 from typing import Any
+from urllib.parse import quote
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 
 from app import chat, frontier
 from app.schemas import (
@@ -72,7 +74,7 @@ def compute_frontier(request: FrontierRequest) -> FrontierResponse:
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-def chat_endpoint(request: ChatRequest) -> ChatResponse:
+async def chat_endpoint(request: ChatRequest) -> ChatResponse:
     available, status_message = chat.codex_status()
     if not available:
         return ChatResponse(
@@ -91,7 +93,8 @@ def chat_endpoint(request: ChatRequest) -> ChatResponse:
         context = "No portfolio context was supplied."
 
     try:
-        result = chat.run_codex_chat(
+        result = await run_in_threadpool(
+            chat.run_codex_chat,
             context=context,
             question=request.message,
             history=[item.model_dump() for item in request.history],
@@ -119,6 +122,16 @@ def _safe_float(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _safe_date(value: Any) -> str | None:
+    try:
+        timestamp = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        return str(value) if value is not None else None
+    if pd.isna(timestamp):
+        return None
+    return timestamp.date().isoformat()
+
+
 def _row_point(row: pd.Series, tickers: list[str]) -> PortfolioPoint:
     return PortfolioPoint(
         weights={ticker: _safe_float(row[ticker]) or 0.0 for ticker in tickers},
@@ -142,8 +155,52 @@ def _asset_stats(result: dict[str, Any]) -> dict[str, AssetStats]:
             return_=_safe_float(stats["ann_return"][ticker]),
             volatility=_safe_float(stats["ann_vol"][ticker]),
             sharpe=_safe_float(sharpe[ticker]),
+            **_asset_price_metadata(result, ticker),
         )
         for ticker in stats["tickers"]
+    }
+
+
+def _asset_price_metadata(result: dict[str, Any], ticker: str) -> dict[str, Any]:
+    prices = result["prices"]
+    source_used = result["source_used"]
+    price_source = "yahoo_finance" if source_used == "online" else "offline_csv"
+    yahoo_finance_url = (
+        f"https://finance.yahoo.com/quote/{quote(ticker, safe='')}"
+        if source_used == "online"
+        else None
+    )
+
+    if ticker not in prices:
+        return {
+            "latest_price": None,
+            "latest_price_date": None,
+            "first_price": None,
+            "first_price_date": None,
+            "price_source": price_source,
+            "yahoo_finance_url": yahoo_finance_url,
+        }
+
+    valid_prices = prices[ticker].dropna()
+    if valid_prices.empty:
+        return {
+            "latest_price": None,
+            "latest_price_date": None,
+            "first_price": None,
+            "first_price_date": None,
+            "price_source": price_source,
+            "yahoo_finance_url": yahoo_finance_url,
+        }
+
+    first_date = valid_prices.index[0]
+    latest_date = valid_prices.index[-1]
+    return {
+        "latest_price": _safe_float(valid_prices.iloc[-1]),
+        "latest_price_date": _safe_date(latest_date),
+        "first_price": _safe_float(valid_prices.iloc[0]),
+        "first_price_date": _safe_date(first_date),
+        "price_source": price_source,
+        "yahoo_finance_url": yahoo_finance_url,
     }
 
 

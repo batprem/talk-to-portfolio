@@ -41,6 +41,12 @@ class AssetStats(BaseModel):
     return_: float | None = Field(serialization_alias="return", alias="return")
     volatility: float | None
     sharpe: float | None
+    latest_price: float | None
+    latest_price_date: str | None
+    first_price: float | None
+    first_price_date: str | None
+    price_source: str
+    yahoo_finance_url: str | None
 
     model_config = ConfigDict(populate_by_name=True)
 

@@ -205,7 +205,12 @@ def run_codex_chat(
 ) -> dict[str, Any]:
     """Run chat through the best available local Codex provider."""
     if _codex_sdk_available():
-        return run_codex_sdk_chat(context=context, question=question, history=history, timeout=timeout)
+        return run_codex_sdk_chat(
+            context=context,
+            question=question,
+            history=history,
+            timeout=timeout,
+        )
 
     cli_path = _codex_cli_path()
     if cli_path:
@@ -262,22 +267,10 @@ def run_codex_cli_chat(
     """Run Codex CLI non-interactively and parse the final response."""
     repo_root = Path(__file__).resolve().parents[2]
     prompt = _codex_cli_prompt(context=context, question=question, history=history)
-    schema = {
-        "type": "object",
-        "properties": {
-            "action": {"type": "string", "enum": ["answer", "update"]},
-            "updates": {"type": "object"},
-            "reply": {"type": "string"},
-        },
-        "required": ["action", "updates", "reply"],
-        "additionalProperties": True,
-    }
 
     with tempfile.TemporaryDirectory(prefix="frontier-chat-") as tmpdir:
         tmp_path = Path(tmpdir)
         output_path = tmp_path / "codex-response.txt"
-        schema_path = tmp_path / "response-schema.json"
-        schema_path.write_text(json.dumps(schema), encoding="utf-8")
 
         proc = subprocess.run(
             [
@@ -285,16 +278,12 @@ def run_codex_cli_chat(
                 "exec",
                 "--sandbox",
                 "read-only",
-                "--ask-for-approval",
-                "never",
                 "--ephemeral",
                 "--skip-git-repo-check",
                 "--color",
                 "never",
                 "-C",
                 str(repo_root),
-                "--output-schema",
-                str(schema_path),
                 "--output-last-message",
                 str(output_path),
                 "-",
@@ -325,7 +314,9 @@ def _codex_cli_prompt(
     history: list[dict[str, str]] | None = None,
 ) -> str:
     if history:
-        recent = "\n".join(f"{item.get('role', 'user')}: {item.get('content', '')}" for item in history[-6:])
+        recent = "\n".join(
+            f"{item.get('role', 'user')}: {item.get('content', '')}" for item in history[-6:]
+        )
         context = f"{context}\n\nRecent conversation:\n{recent}"
 
     primer = SYSTEM_PRIMER.replace("{context}", context)

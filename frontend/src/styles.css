@@ -435,6 +435,96 @@ h3 {
   height: 100%;
 }
 
+.allocation-section {
+  border-top: 1px solid #eef2f6;
+  margin: 16px 0 0;
+  padding-top: 15px;
+}
+
+.allocation-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.allocation-card {
+  background: #f7fafc;
+  border: 1px solid #e4ebf3;
+  border-radius: 7px;
+  min-width: 0;
+  padding: 11px;
+}
+
+.allocation-card h4 {
+  color: var(--ink);
+  font-size: 0.82rem;
+  margin: 0 0 10px;
+}
+
+.allocation-content {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 96px minmax(0, 1fr);
+}
+
+.allocation-pie {
+  display: block;
+  filter: drop-shadow(0 6px 10px rgba(15, 23, 42, 0.12));
+  height: 96px;
+  width: 96px;
+}
+
+.allocation-pie path {
+  stroke: #ffffff;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.allocation-legend {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.allocation-legend-row {
+  align-items: center;
+  color: var(--muted);
+  display: grid;
+  font-size: 0.76rem;
+  font-weight: 800;
+  gap: 6px;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  min-width: 0;
+}
+
+.allocation-legend-row span:nth-child(2) {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.allocation-legend-row strong {
+  color: var(--ink);
+  font-size: 0.75rem;
+}
+
+.allocation-swatch {
+  border-radius: 999px;
+  height: 10px;
+  width: 10px;
+}
+
+.allocation-empty {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 0.84rem;
+  font-weight: 750;
+  min-height: 96px;
+}
+
 .asset-reference-section {
   border-top: 1px solid #eef2f6;
   margin-top: 18px;
@@ -456,6 +546,11 @@ h3 {
 .asset-reference-list {
   display: grid;
   gap: 11px;
+  max-height: min(360px, 42vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .asset-reference-row {
@@ -727,6 +822,14 @@ h3 {
       "metrics chart"
       "verification chat";
   }
+
+  .asset-reference-list {
+    max-height: min(320px, 40vh);
+  }
+
+  .allocation-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 850px) {
@@ -761,5 +864,28 @@ h3 {
 
   .chart-wrap svg {
     min-height: 320px;
+  }
+
+  .asset-reference-list {
+    max-height: min(300px, 45vh);
+  }
+
+  .allocation-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .allocation-grid,
+  .allocation-content {
+    grid-template-columns: 1fr;
+  }
+
+  .allocation-content {
+    justify-items: center;
+  }
+
+  .allocation-legend {
+    width: 100%;
   }
 }

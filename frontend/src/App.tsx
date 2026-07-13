@@ -53,6 +53,19 @@ const priceFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 4
 });
 
+const allocationColors = [
+  "#0f766e",
+  "#2563eb",
+  "#c2410c",
+  "#be123c",
+  "#15803d",
+  "#7c3aed",
+  "#0891b2",
+  "#b45309",
+  "#4f46e5",
+  "#ca8a04"
+];
+
 function finiteNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() !== "") {
@@ -156,6 +169,25 @@ function getWeights(record: NumericRecord | undefined): Record<string, number> {
   );
 }
 
+function getOptimumRecord(
+  optima: FrontierResponse["optima"],
+  keys: string[]
+): NumericRecord | undefined {
+  if (!optima) return undefined;
+
+  for (const key of keys) {
+    const match = optima[key];
+    if (match) return match;
+  }
+
+  const normalizedKeys = new Set(
+    keys.map((key) => key.toLowerCase().replaceAll(/[\s-]/g, "_"))
+  );
+  return Object.entries(optima).find(([key]) =>
+    normalizedKeys.has(key.toLowerCase().replaceAll(/[\s-]/g, "_"))
+  )?.[1];
+}
+
 function formatValue(value: unknown): string {
   const numeric = finiteNumber(value);
   if (numeric !== undefined) {
@@ -229,12 +261,24 @@ function App() {
     const optima = frontier?.optima;
     if (!optima) return undefined;
     return (
-      optima.max_sharpe ??
-      optima.maxSharpe ??
-      optima.tangency ??
+      getOptimumRecord(optima, ["max_sharpe", "maxSharpe", "tangency"]) ??
       Object.values(optima)[0]
     );
   }, [frontier]);
+  const minVarianceOptimum = useMemo(
+    () =>
+      getOptimumRecord(frontier?.optima, [
+        "min_variance",
+        "minVariance",
+        "minimum_variance",
+        "minimumVariance"
+      ]),
+    [frontier]
+  );
+  const maxSharpeOptimum = useMemo(
+    () => getOptimumRecord(frontier?.optima, ["max_sharpe", "maxSharpe", "tangency"]),
+    [frontier]
+  );
 
   const runFrontier = async (nextInputs = inputs) => {
     setIsComputing(true);
@@ -454,6 +498,12 @@ function App() {
             <h2>Risk / Return</h2>
           </div>
           <PortfolioChart frontier={frontier} isLoading={isComputing} />
+          {frontier ? (
+            <AllocationComparison
+              minVariance={minVarianceOptimum}
+              maxSharpe={maxSharpeOptimum}
+            />
+          ) : null}
           {error ? <p className="error-line">{error}</p> : null}
         </section>
 
@@ -774,6 +824,147 @@ function MetricsPanel({
       </div>
     </section>
   );
+}
+
+function AllocationComparison({
+  minVariance,
+  maxSharpe
+}: {
+  minVariance: NumericRecord | undefined;
+  maxSharpe: NumericRecord | undefined;
+}) {
+  return (
+    <div className="allocation-section" aria-label="Optimal portfolio allocations">
+      <div className="subsection-heading">
+        <h3>Allocation Pies</h3>
+      </div>
+      <div className="allocation-grid">
+        <AllocationPie title="Min Variance" weights={getWeights(minVariance)} />
+        <AllocationPie title="Max Sharpe" weights={getWeights(maxSharpe)} />
+      </div>
+    </div>
+  );
+}
+
+function AllocationPie({
+  title,
+  weights
+}: {
+  title: string;
+  weights: Record<string, number>;
+}) {
+  const entries = Object.entries(weights)
+    .map(([asset, weight]) => [asset, Math.max(0, weight)] as const)
+    .filter(([, weight]) => weight > 0)
+    .sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
+  const titleId = `${title.toLowerCase().replaceAll(/\s+/g, "-")}-allocation-title`;
+  const descId = `${title.toLowerCase().replaceAll(/\s+/g, "-")}-allocation-desc`;
+  let cumulative = 0;
+
+  if (entries.length === 0 || total <= 0) {
+    return (
+      <div className="allocation-card">
+        <h4>{title}</h4>
+        <div className="allocation-empty">No weights returned</div>
+      </div>
+    );
+  }
+
+  const summary = entries
+    .map(([asset, weight]) => `${asset} ${percentFormatter.format(weight / total)}`)
+    .join(", ");
+
+  return (
+    <div className="allocation-card">
+      <h4>{title}</h4>
+      <div className="allocation-content">
+        <svg
+          className="allocation-pie"
+          viewBox="0 0 128 128"
+          role="img"
+          aria-labelledby={`${titleId} ${descId}`}
+        >
+          <title id={titleId}>{title} allocation pie chart</title>
+          <desc id={descId}>{summary}</desc>
+          {entries.map(([asset, weight], index) => {
+            const start = cumulative / total;
+            cumulative += weight;
+            const end = cumulative / total;
+            return (
+              <path
+                key={asset}
+                d={describePieSlice(64, 64, 58, start, end)}
+                fill={allocationColors[index % allocationColors.length]}
+              >
+                <title>{`${asset}: ${percentFormatter.format(weight / total)}`}</title>
+              </path>
+            );
+          })}
+        </svg>
+        <div className="allocation-legend">
+          {entries.map(([asset, weight], index) => (
+            <div className="allocation-legend-row" key={asset}>
+              <span
+                className="allocation-swatch"
+                style={{
+                  backgroundColor:
+                    allocationColors[index % allocationColors.length]
+                }}
+                aria-hidden="true"
+              />
+              <span>{asset}</span>
+              <strong>{percentFormatter.format(weight / total)}</strong>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function describePieSlice(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  startFraction: number,
+  endFraction: number
+): string {
+  const startAngle = startFraction * 360 - 90;
+  const endAngle = endFraction * 360 - 90;
+  const start = pointOnCircle(centerX, centerY, radius, startAngle);
+  const end = pointOnCircle(centerX, centerY, radius, endAngle);
+  const largeArcFlag = endFraction - startFraction > 0.5 ? 1 : 0;
+
+  if (endFraction - startFraction >= 0.9999) {
+    return [
+      `M ${centerX} ${centerY}`,
+      `m ${-radius} 0`,
+      `a ${radius} ${radius} 0 1 0 ${radius * 2} 0`,
+      `a ${radius} ${radius} 0 1 0 ${-radius * 2} 0`,
+      "Z"
+    ].join(" ");
+  }
+
+  return [
+    `M ${centerX} ${centerY}`,
+    `L ${start.x} ${start.y}`,
+    `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${end.x} ${end.y}`,
+    "Z"
+  ].join(" ");
+}
+
+function pointOnCircle(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  angleDegrees: number
+) {
+  const angleRadians = (angleDegrees * Math.PI) / 180;
+  return {
+    x: centerX + radius * Math.cos(angleRadians),
+    y: centerY + radius * Math.sin(angleRadians)
+  };
 }
 
 function VerificationPanel({ frontier }: { frontier: FrontierResponse | null }) {
